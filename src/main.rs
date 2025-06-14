@@ -112,7 +112,7 @@ async fn delete_teams(Extension(pool): Extension<SqlitePool>, Path(team_id): Pat
                 (StatusCode::NOT_FOUND, format!("Team was not found."))
             }
             else {
-                (StatusCode::NO_CONTENT, format!("Team was successfully removed."))
+                (StatusCode::OK, format!("Team was successfully removed."))
             }
         }
         Err(e) => {
