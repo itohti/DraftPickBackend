@@ -1,7 +1,7 @@
-use std::{fs::File};
 use axum::{
-    extract::{Extension, Path}, http::StatusCode, response::IntoResponse, routing::{get, post, delete}, Json, Router
+    extract::{Extension, Path}, http::{StatusCode, HeaderValue, Method}, response::IntoResponse, routing::{get, post, delete}, Json, Router
 };
+use tower_http::cors::{CorsLayer};
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value};
@@ -22,12 +22,26 @@ pub mod services {
 
 use dto::team_dto::Team;
 use dto::request_team_dto::CreateTeam;
-use dto::player_dto::PlayerCard;
 use services::draft_player_formatter;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+
+    let allowed_origins = [
+        "http://localhost:3001",
+        "https://valorant-draft-pick.vercel.app",
+    ];
+
+    let cors = CorsLayer::new()
+        .allow_origin(
+            allowed_origins
+                .iter()
+                .map(|origin| origin.parse::<HeaderValue>().unwrap())
+                .collect::<Vec<_>>(),
+        )
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_headers(tower_http::cors::Any);
 
     let db_url = "sqlite://./data/sunny.db";
     let pool = SqlitePoolOptions::new()
@@ -43,7 +57,8 @@ async fn main() {
         .route("/teams", post(create_teams))
         .route("/teams/{team_id}", delete(delete_teams))
         .route("/players", get(get_players))
-        .layer(Extension(pool));
+        .layer(Extension(pool))
+        .layer(cors);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     info!("Started server.");
