@@ -18,7 +18,7 @@ fn rank_to_number(rank: &str) -> u8 {
     }
 }
 
-pub fn format_responses(rows: &Vec<Value>) -> Vec<PlayerCard> {
+pub fn format_responses(rows: &[Value]) -> Vec<PlayerCard> {
     let headers = rows[0].as_array().expect("Expected headers to be an array");
     let data_rows = &rows[1..];
 
