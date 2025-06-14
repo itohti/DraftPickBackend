@@ -1,17 +1,21 @@
 use axum::{
-    routing::{get, post},
-    http::StatusCode,
-    Json, Router,
+    extract::Extension, http::StatusCode, response::IntoResponse, routing::{get, post}, Json, Router
 };
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use serde::{Deserialize, Serialize};
 use tracing::{info, error};
 
+mod dto {
+    pub mod team_dto;
+}
+
+use dto::team_dto::Team;
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let db_url = "sqlite://sunny.db";
+    let db_url = "sqlite://./data/sunny.db";
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect(db_url)
@@ -21,7 +25,8 @@ async fn main() {
     info!("Connected to sqlite database.");
 
     let app = Router::new()
-        .route("/teams", get(get_teams));
+        .route("/teams", get(get_teams))
+        .layer(Extension(pool));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     info!("Started server.");
@@ -29,7 +34,18 @@ async fn main() {
 }
 
 
-async fn get_teams() -> (StatusCode, String) {
+async fn get_teams(Extension(pool): Extension<SqlitePool>,) -> impl IntoResponse {
     info!("Fetching teams.");
-    (StatusCode::OK, "teams lol".to_string())
+
+    let teams_result = sqlx::query_as::<_, Team>("SELECT * FROM teams")
+        .fetch_all(&pool)
+        .await;
+
+    match teams_result {
+        Ok(teams) => (StatusCode::OK, Json(teams)),
+        Err(e) => {
+            error!("DB query error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(Vec::<Team>::new()))
+        }
+    }
 }
