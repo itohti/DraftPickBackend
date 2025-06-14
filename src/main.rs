@@ -1,18 +1,29 @@
+use std::{fs::File};
 use axum::{
     extract::{Extension, Path}, http::StatusCode, response::IntoResponse, routing::{get, post, delete}, Json, Router
 };
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use serde::{Deserialize, Serialize};
-use serde_json;
+use serde_json::{Value};
 use tracing::{info, error};
 
-mod dto {
+use yup_oauth2::{ServiceAccountAuthenticator, read_service_account_key};
+use reqwest::Client;
+
+pub mod dto {
     pub mod team_dto;
     pub mod request_team_dto;
+    pub mod player_dto;
+}
+
+pub mod services {
+    pub mod draft_player_formatter;
 }
 
 use dto::team_dto::Team;
 use dto::request_team_dto::CreateTeam;
+use dto::player_dto::PlayerCard;
+use services::draft_player_formatter;
 
 #[tokio::main]
 async fn main() {
@@ -31,6 +42,7 @@ async fn main() {
         .route("/teams", get(get_teams))
         .route("/teams", post(create_teams))
         .route("/teams/{team_id}", delete(delete_teams))
+        .route("/players", get(get_players))
         .layer(Extension(pool));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -121,4 +133,47 @@ async fn delete_teams(Extension(pool): Extension<SqlitePool>, Path(team_id): Pat
         }
     }
     
+}
+
+/**
+ * GET the players that signed up for the tournament.
+ */
+async fn get_players() -> impl IntoResponse {
+    let service_account_key = read_service_account_key("credentials.json").await.expect("Could not read google credentials");
+    
+    let auth = ServiceAccountAuthenticator::builder(service_account_key)
+        .build()
+        .await
+        .expect("Failed to create auth");
+
+    let scope = &["https://www.googleapis.com/auth/spreadsheets.readonly"];
+    let token = auth.token(scope).await.expect("Google api error.");
+
+    let sheet_id = "1_57KqAux4swU4QAdQXeEd--eDDSFZzF_FXVosagzAQU";
+    let range = "Form Responses 1";
+
+    let url = format!(
+        "https://sheets.googleapis.com/v4/spreadsheets/{}/values/{}",
+        sheet_id, range
+    );
+
+    let client = Client::new();
+
+    let response: Value = client
+        .get(&url)
+        .bearer_auth(token.token().expect("No token string"))
+        .send()
+        .await
+        .expect("Could not send request to Google Sheets API")
+        .json()
+        .await
+        .expect("Could not convert response to json");
+
+    let values = response.get("values")
+        .and_then(|v| v.as_array())
+        .ok_or("No values array found in response").expect("Could not fetch data.");
+
+    let players = draft_player_formatter::format_responses(values);
+
+    (StatusCode::OK, Json(players))
 }
