@@ -84,8 +84,14 @@ async fn send_update(pool: &SqlitePool, tx: &broadcast::Sender<String>) {
         teams
     };
 
-    let update_msg = serde_json::to_string(&update).unwrap();
-    let _ = tx.send(update_msg.to_string());
+    let update_msg = match serde_json::to_string(&update) {
+        Ok(msg) => msg,
+        Err(e) => {
+            error!("Failed to serialize update: {}", e);
+            return;
+        }
+    };
+    let _ = tx.send(update_msg);
 }
 
 /**
