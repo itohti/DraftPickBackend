@@ -1,11 +1,13 @@
 use axum::{
-    extract::{Extension, Path}, http::{StatusCode, HeaderValue, Method}, response::IntoResponse, routing::{get, post, delete}, Json, Router
+    extract::{Extension, Path, ws::{WebSocket, WebSocketUpgrade, Message}}, http::{StatusCode, HeaderValue, Method}, response::IntoResponse, routing::{get, post, delete}, Json, Router
 };
 use tower_http::cors::{CorsLayer};
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value};
 use tracing::{info, error};
+use tokio::sync::{broadcast};
+use futures_util::{StreamExt, SinkExt};
 
 use yup_oauth2::{ServiceAccountAuthenticator, read_service_account_key};
 use reqwest::Client;
@@ -14,6 +16,7 @@ pub mod dto {
     pub mod team_dto;
     pub mod request_team_dto;
     pub mod player_dto;
+    pub mod team_update_dto;
 }
 
 pub mod services {
@@ -22,6 +25,7 @@ pub mod services {
 
 use dto::team_dto::Team;
 use dto::request_team_dto::CreateTeam;
+use dto::team_update_dto::TeamsUpdate;
 use services::draft_player_formatter;
 
 #[tokio::main]
@@ -52,17 +56,42 @@ async fn main() {
 
     info!("Connected to sqlite database.");
 
+    let (tx, _) = broadcast::channel::<String>(32);
+    
     let app = Router::new()
+        .route("/ws", get(websocket_handler))
         .route("/teams", get(get_teams))
         .route("/teams", post(create_teams))
         .route("/teams/{team_id}", delete(delete_teams))
         .route("/players", get(get_players))
         .layer(Extension(pool))
-        .layer(cors);
+        .layer(cors)
+        .layer(Extension(tx));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     info!("Started server.");
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn send_update(pool: &SqlitePool, tx: &broadcast::Sender<String>) {
+    let teams = sqlx::query_as::<_, Team>("SELECT * FROM teams")
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+    let update = TeamsUpdate {
+        r#type: "teams_update".to_string(),
+        teams
+    };
+
+    let update_msg = match serde_json::to_string(&update) {
+        Ok(msg) => msg,
+        Err(e) => {
+            error!("Failed to serialize update: {}", e);
+            return;
+        }
+    };
+    let _ = tx.send(update_msg);
 }
 
 /**
@@ -87,7 +116,11 @@ async fn get_teams(Extension(pool): Extension<SqlitePool>,) -> impl IntoResponse
 /**
  * POST request to create a new team.
  */
-async fn create_teams(Extension(pool): Extension<SqlitePool>, Json(payload): Json<CreateTeam>,) -> impl IntoResponse {
+async fn create_teams(
+    Extension(pool): Extension<SqlitePool>,
+    Extension(tx): Extension<broadcast::Sender<String>>,
+    Json(payload): Json<CreateTeam>,
+) -> impl IntoResponse {
     info!("Creating a team {}", payload.name);
 
     let selections_json = match serde_json::to_string(&payload.selections) {
@@ -113,6 +146,7 @@ async fn create_teams(Extension(pool): Extension<SqlitePool>, Json(payload): Jso
 
     match create_result {
         Ok(result) => {
+            send_update(&pool, &tx).await;
             (StatusCode::OK, format!("Successfully created the team!"))
         }
         Err(e) => {
@@ -124,7 +158,11 @@ async fn create_teams(Extension(pool): Extension<SqlitePool>, Json(payload): Jso
 /**
  * DELETE request to delete a team by their name.
  */
-async fn delete_teams(Extension(pool): Extension<SqlitePool>, Path(team_id): Path<i64>) -> impl IntoResponse {
+async fn delete_teams(
+    Extension(pool): Extension<SqlitePool>,
+    Extension(tx): Extension<broadcast::Sender<String>>,
+    Path(team_id): Path<i64>
+) -> impl IntoResponse {
     info!("Deleting the team {}", team_id);
 
     let delete_result = sqlx::query!(
@@ -139,6 +177,7 @@ async fn delete_teams(Extension(pool): Extension<SqlitePool>, Path(team_id): Pat
                 (StatusCode::NOT_FOUND, format!("Team was not found."))
             }
             else {
+                send_update(&pool, &tx).await;
                 (StatusCode::OK, format!("Team was successfully removed."))
             }
         }
@@ -191,4 +230,34 @@ async fn get_players() -> impl IntoResponse {
     let players = draft_player_formatter::format_responses(values);
 
     (StatusCode::OK, Json(players))
+}
+
+/* Web Socket stuff */
+async fn websocket_handler(
+    ws: WebSocketUpgrade,
+    Extension(tx): Extension<broadcast::Sender<String>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, tx))
+}
+
+async fn handle_socket(socket: WebSocket, tx: broadcast::Sender<String>) {
+    let (mut sender, mut receiver) = socket.split();
+    let mut rx = tx.subscribe();
+
+    // Task to send messages to this client
+    let send_task = tokio::spawn(async move {
+        while let Ok(msg) = rx.recv().await {
+            if sender.send(Message::Text(msg.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Receive messages from this client and broadcast them
+    while let Some(Ok(Message::Text(msg))) = receiver.next().await {
+        let _ = tx.send(msg.to_string());
+    }
+
+    // Clean up
+    send_task.abort();
 }
