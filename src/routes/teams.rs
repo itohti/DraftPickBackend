@@ -7,8 +7,9 @@ use axum::{
 use sqlx::{SqlitePool};
 use tokio::sync::broadcast;
 use tracing::{info, error};
-use crate::dto::team_dto::{Team, CreateTeam};
+use crate::{dto::team_dto::{CreateTeam, Team}};
 use crate::services::websocket::{send_update};
+use crate::services::auth_user::AuthUser;
 /**
  * GET request to get all the teams.
  */
@@ -47,14 +48,15 @@ pub async fn create_teams(
 
     let create_result = sqlx::query!(
         r#"
-        INSERT INTO teams (name, selections, team_size, team_money, is_picking)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO teams (name, selections, team_size, team_money, is_picking, created_by)
+        VALUES (?, ?, ?, ?, ?, ?)
         "#,
         payload.name,
         selections_json,
         0,
         0,
-        false
+        false,
+        payload.created_by
     )
     .execute(&pool)
     .await;
@@ -76,12 +78,13 @@ pub async fn create_teams(
 pub async fn delete_teams(
     Extension(pool): Extension<SqlitePool>,
     Extension(tx): Extension<broadcast::Sender<String>>,
+    AuthUser(claims): AuthUser,
     Path(team_id): Path<i64>
 ) -> impl IntoResponse {
     info!("Deleting the team {}", team_id);
 
     let delete_result = sqlx::query!(
-        "DELETE FROM teams WHERE id = ?", team_id
+        "DELETE FROM teams WHERE id = ? AND created_by = ?", team_id, claims.sub
     )
     .execute(&pool)
     .await;
