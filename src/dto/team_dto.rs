@@ -11,3 +11,9 @@ pub struct Team {
     is_picking: bool,
     created_by: String
 }
+
+#[derive(Serialize)]
+pub struct TeamsUpdate {
+    pub r#type: String,
+    pub teams: Vec<Team>,
+}
