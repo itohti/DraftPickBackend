@@ -5,6 +5,7 @@ use axum::{
     Json,
 };
 use sqlx::{SqlitePool};
+use serde_json::json;
 use tracing::{error};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use chrono::{Utc};
@@ -114,20 +115,22 @@ pub async fn login_user(
                         &EncodingKey::from_secret("sunnycup".as_ref())
                     ).expect("Token encoding failed");
 
-
-                    return (StatusCode::OK, Json(token));
+                    return (StatusCode::OK, Json(json!({
+                        "name": user.name,
+                        "token": token
+                    })));
                 }
                 else {
-                    return (StatusCode::UNAUTHORIZED, Json("Incorrect username or password.".to_string()));
+                    return (StatusCode::UNAUTHORIZED, Json(json!({"error": "Incorrect username or password."})));
                 }
             }
             else {
-                return (StatusCode::NOT_FOUND, Json("User was not found.".to_string()));
+                return (StatusCode::NOT_FOUND, Json(json!({"error": "User was not found."})));
             }
         }
         Err(e) => {
             error!("There was an error with the database {:?}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json("There was a database issue.".to_string()))
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "There was a database issue."})))
         }
     }
 
