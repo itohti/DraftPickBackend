@@ -21,5 +21,6 @@ pub struct TeamsUpdate {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateTeam {
     pub name: String,
-    pub selections: Vec<String>
+    pub selections: Vec<String>,
+    pub created_by: String
 }
