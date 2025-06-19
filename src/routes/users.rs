@@ -79,7 +79,7 @@ pub async fn remove_user(
 
     match remove_result {
         Ok(result) => {
-            return (StatusCode::OK, format!("Sucessfully removed {}", username));
+            return (StatusCode::OK, format!("Successfully removed {}", username));
         }
         Err(e) => {
             return (StatusCode::INTERNAL_SERVER_ERROR, format!("Could not remove {} for this reason {}.", username, e));
