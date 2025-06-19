@@ -9,4 +9,5 @@ pub struct Team {
     team_size: i32,
     team_money: i32,
     is_picking: bool,
+    created_by: String
 }
