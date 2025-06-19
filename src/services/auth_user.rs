@@ -1,10 +1,11 @@
-use crate::Claims;
 use axum::{
     extract::FromRequestParts,
     http::{request::Parts, StatusCode},
 };
 use jsonwebtoken::{decode, DecodingKey, Validation};
 use tracing::error;
+
+use crate::dto::claims_dto::Claims;
 
 pub struct AuthUser(pub Claims);
 
