@@ -7,8 +7,7 @@ use axum::{
 use sqlx::{SqlitePool};
 use tokio::sync::broadcast;
 use tracing::{info, error};
-use crate::dto::team_dto::Team;
-use crate::dto::request_team_dto::CreateTeam;
+use crate::dto::team_dto::{Team, CreateTeam};
 use crate::services::websocket::{send_update};
 /**
  * GET request to get all the teams.
