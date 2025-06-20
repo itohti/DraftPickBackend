@@ -64,7 +64,7 @@ pub async fn send_player_update(pool: &SqlitePool, tx: &broadcast::Sender<String
             let _ = tx.send(json);
         }
         Err(e) => {
-            tracing::error!("Failed to serialize draft update message: {}", e);
+            tracing::error!("Failed to serialize player update message: {}", e);
         }
     }
 }
