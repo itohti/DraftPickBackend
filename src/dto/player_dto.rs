@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sqlx::{FromRow};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RawPlayer {
@@ -21,7 +22,7 @@ pub struct RawPlayer {
     pub ign: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PlayerCard {
     pub name: String,
     pub peak_rank: String,
@@ -31,4 +32,23 @@ pub struct PlayerCard {
     pub ign: String,
     pub current_rank_order: u8,
     pub peak_rank_order: u8,
+}
+
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
+pub struct Player {
+    pub name: String,
+    pub peak_rank: String,
+    pub current_rank: String,
+    pub teammate_preferences: Option<String>,
+    pub roles: Option<String>,
+    pub ign: String,
+    pub current_rank_order: i64,
+    pub peak_rank_order: i64,
+    pub drafted: bool
+}
+
+#[derive(Serialize)]
+pub struct PlayerUpdate {
+    pub r#type: String,
+    pub players: Vec<Player>
 }

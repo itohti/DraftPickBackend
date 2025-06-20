@@ -10,6 +10,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "jsonwebtoken",
+ "rand 0.9.1",
  "reqwest",
  "serde",
  "serde_json",

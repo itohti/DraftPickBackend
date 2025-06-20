@@ -8,7 +8,7 @@ use sqlx::{SqlitePool};
 use tokio::sync::broadcast;
 use tracing::{info, error};
 use crate::{dto::team_dto::{CreateTeam, Team}};
-use crate::services::websocket::{send_update};
+use crate::services::websocket::{send_team_update};
 use crate::services::auth_user::AuthUser;
 /**
  * GET request to get all the teams.
@@ -35,6 +35,7 @@ pub async fn get_teams(Extension(pool): Extension<SqlitePool>,) -> impl IntoResp
 pub async fn create_teams(
     Extension(pool): Extension<SqlitePool>,
     Extension(tx): Extension<broadcast::Sender<String>>,
+    AuthUser(claims): AuthUser,
     Json(payload): Json<CreateTeam>,
 ) -> impl IntoResponse {
     info!("Creating a team {}", payload.name);
@@ -56,14 +57,14 @@ pub async fn create_teams(
         0,
         0,
         false,
-        payload.created_by
+        claims.sub
     )
     .execute(&pool)
     .await;
 
     match create_result {
         Ok(result) => {
-            send_update(&pool, &tx).await;
+            send_team_update(&pool, &tx).await;
             (StatusCode::OK, format!("Successfully created the team!"))
         }
         Err(e) => {
@@ -95,7 +96,7 @@ pub async fn delete_teams(
                 (StatusCode::NOT_FOUND, format!("Team was not found."))
             }
             else {
-                send_update(&pool, &tx).await;
+                send_team_update(&pool, &tx).await;
                 (StatusCode::OK, format!("Team was successfully removed."))
             }
         }

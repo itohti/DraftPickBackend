@@ -6,10 +6,10 @@ use axum::{
 use sqlx::{SqlitePool};
 use tokio::sync::broadcast;
 use tracing::{info, error};
-use crate::dto::team_dto::{Team, TeamsUpdate};
+use crate::dto::{draft_dto::{SharedDraftState, UpdateDraft}, team_dto::{Team, TeamsUpdate}, player_dto::{Player, PlayerUpdate}};
 use futures_util::{StreamExt, SinkExt};
 
-pub async fn send_update(pool: &SqlitePool, tx: &broadcast::Sender<String>) {
+pub async fn send_team_update(pool: &SqlitePool, tx: &broadcast::Sender<String>) {
     let teams = sqlx::query_as::<_, Team>("SELECT * FROM teams")
         .fetch_all(pool)
         .await
@@ -28,6 +28,45 @@ pub async fn send_update(pool: &SqlitePool, tx: &broadcast::Sender<String>) {
         }
     };
     let _ = tx.send(update_msg);
+}
+
+pub async fn send_draft_update(tx: &broadcast::Sender<String>, state: &SharedDraftState) {
+    let state_guard = state.read().await;
+
+    let update_msg = UpdateDraft {
+        r#type: "draft_update".to_string(),
+        draft_state: state_guard.clone(),
+    };
+
+    match serde_json::to_string(&update_msg) {
+        Ok(json) => {
+            let _ = tx.send(json);
+        }
+        Err(e) => {
+            tracing::error!("Failed to serialize draft update message: {}", e);
+        }
+    }
+}
+
+pub async fn send_player_update(pool: &SqlitePool, tx: &broadcast::Sender<String>) {
+    let player_result = sqlx::query_as::<_, Player>("SELECT * FROM players")
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+    let update_msg = PlayerUpdate {
+        r#type: "player_update".to_string(),
+        players: player_result
+    };
+
+    match serde_json::to_string(&update_msg) {
+        Ok(json) => {
+            let _ = tx.send(json);
+        }
+        Err(e) => {
+            tracing::error!("Failed to serialize player update message: {}", e);
+        }
+    }
 }
 
 /* Web Socket stuff */
