@@ -2,16 +2,21 @@ use axum::{
     extract::{Extension}, http::{HeaderValue, Method}, routing::{get, post, delete}, Router
 };
 use tower_http::cors::{CorsLayer};
-use sqlx::{sqlite::SqlitePoolOptions};
+use sqlx::{sqlite::SqlitePoolOptions, types::Json};
 use tracing::{info, error};
 use tokio::sync::{broadcast};
+use tokio::sync::RwLock;
+use std::sync::Arc;
 
 mod dto;
 mod services;
 mod routes;
 
+use dto::draft_dto::{DraftState, SharedDraftState};
+
 use routes::teams::{get_teams, create_teams, delete_teams};
 use routes::users::{create_user, login_user, remove_user};
+use routes::draft::{start_draft, get_state_internal, draft_pick, get_state, stop_draft};
 use routes::players::get_players;
 
 
@@ -44,6 +49,8 @@ async fn main() {
     info!("Connected to sqlite database.");
 
     let (tx, _) = broadcast::channel::<String>(32);
+
+    let draft_state = get_state_internal(&pool).await;
     
     let app = Router::new()
         .route("/ws", get(services::websocket::websocket_handler))
@@ -54,9 +61,14 @@ async fn main() {
         .route("/login", post(login_user))
         .route("/users", post(create_user))
         .route("/users", delete(remove_user))
+        .route("/start_draft", post(start_draft))
+        .route("/draft/pick", post(draft_pick))
+        .route("/stop_draft", post(stop_draft))
+        .route("/draft", get(get_state))
         .layer(Extension(pool))
-        .layer(cors)
-        .layer(Extension(tx));
+        .layer(Extension(tx))
+        .layer(Extension(draft_state))
+        .layer(cors);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     info!("Started server.");

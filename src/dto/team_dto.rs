@@ -1,15 +1,15 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
-#[derive(Debug, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow, Clone)]
 pub struct Team {
-    id: i64,
-    name: String,
-    selections: String,      
-    team_size: i32,
-    team_money: i32,
-    is_picking: bool,
-    created_by: String
+    pub id: i64,
+    pub name: String,
+    pub selections: Option<String>,      
+    pub team_size: i64,
+    pub team_money: i64,
+    pub is_picking: bool,
+    pub created_by: String
 }
 
 #[derive(Serialize)]
@@ -21,6 +21,5 @@ pub struct TeamsUpdate {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateTeam {
     pub name: String,
-    pub selections: Vec<String>,
-    pub created_by: String
+    pub selections: Vec<String>
 }
