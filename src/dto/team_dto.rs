@@ -9,7 +9,7 @@ pub struct Team {
     pub team_size: i64,
     pub team_money: i64,
     pub is_picking: bool,
-    pub created_by: String
+    pub created_by: Option<String>
 }
 
 #[derive(Serialize)]
