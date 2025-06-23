@@ -219,7 +219,7 @@ pub async fn draft_pick(
 
     let current_team = &mut teams[turn as usize];
 
-    if current_team.created_by != claims.sub {
+    if current_team.created_by != Some(claims.sub) {
         return (StatusCode::UNAUTHORIZED, format!("You do not have permission to pick for this team."));
     }
 

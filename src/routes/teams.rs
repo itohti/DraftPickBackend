@@ -6,8 +6,8 @@ use axum::{
 };
 use sqlx::{SqlitePool};
 use tokio::sync::broadcast;
-use tracing::{info, error};
-use crate::{dto::team_dto::{CreateTeam, Team}};
+use tracing::{info, error, warn};
+use crate::{dto::{player_dto::Player, team_dto::{CreateTeam, Team}}, services::websocket::send_player_update};
 use crate::services::websocket::{send_team_update};
 use crate::services::auth_user::AuthUser;
 /**
@@ -43,11 +43,16 @@ pub async fn create_teams(
     let selections_json = match serde_json::to_string(&payload.selections) {
         Ok(json) => json,
         Err(e) => {
-            return (StatusCode::INTERNAL_SERVER_ERROR, format!("Could not read selection input correctly {}", e))
+            error!("Failed to serialize selections: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Could not read selection input correctly: {}", e),
+            );
         }
     };
 
-    let create_result = sqlx::query!(
+    // Insert the team initially
+    if let Err(e) = sqlx::query!(
         r#"
         INSERT INTO teams (name, selections, team_size, team_money, is_picking, created_by)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -60,17 +65,112 @@ pub async fn create_teams(
         claims.sub
     )
     .execute(&pool)
-    .await;
+    .await
+    {
+        error!("Failed to create team: {}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Could not create the team {}", payload.name),
+        );
+    }
 
-    match create_result {
-        Ok(result) => {
-            send_team_update(&pool, &tx).await;
-            (StatusCode::OK, format!("Successfully created the team!"))
+    let username = claims.sub;
+    let like_pattern = format!("{}%", username);
+
+    // Try to find a matching player
+    match sqlx::query_as!(
+        Player,
+        r#"SELECT * FROM players WHERE ign LIKE ? LIMIT 1"#,
+        like_pattern
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(Some(player)) => {
+            // Fetch the team just created
+            match sqlx::query_as!(
+                Team,
+                r#"SELECT * FROM teams WHERE created_by = ? ORDER BY id DESC LIMIT 1"#,
+                username
+            )
+            .fetch_one(&pool)
+            .await
+            {
+                Ok(team) => {
+                    let mut selections: Vec<Player> = match team.selections {
+                        Some(s) => serde_json::from_str(&s).unwrap_or_else(|_| vec![]),
+                        None => vec![],
+                    };
+
+                    let mut updated_player = player.clone();
+                    updated_player.drafted = true;
+                    selections.push(updated_player);
+
+                    let updated_selections_json = match serde_json::to_string(&selections) {
+                        Ok(json) => json,
+                        Err(e) => {
+                            error!("Failed to re-serialize selections: {}", e);
+                            return (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                format!("Failed to serialize selections: {}", e),
+                            );
+                        }
+                    };
+
+                    // Update the team's selections
+                    if let Err(e) = sqlx::query!(
+                        r#"
+                        UPDATE teams
+                        SET selections = ?
+                        WHERE id = ?
+                        "#,
+                        updated_selections_json,
+                        team.id
+                    )
+                    .execute(&pool)
+                    .await
+                    {
+                        error!("Failed to update team with new selection: {}", e);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "Failed to update team with new selection".to_string(),
+                        );
+                    }
+
+                    let _ = sqlx::query!(
+                        r#"UPDATE players SET drafted = 1 WHERE ign = ?"#,
+                        player.ign
+                    )
+                    .execute(&pool)
+                    .await;
+                }
+                Err(e) => {
+                    error!("Could not fetch created team: {}", e);
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Could not fetch the created team".to_string(),
+                    );
+                }
+            }
+        }
+        Ok(None) => {
+            warn!("No matching player found for '{}'", username);
         }
         Err(e) => {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Could not create the team {}", payload.name))
+            error!("Error fetching player: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to find matching player".to_string(),
+            );
         }
     }
+
+    send_team_update(&pool, &tx).await;
+    send_player_update(&pool, &tx).await;
+    (
+        StatusCode::OK,
+        format!("Successfully created the team!"),
+    )
 }
 
 /**
