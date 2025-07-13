@@ -11,7 +11,7 @@ use tokio::sync::RwLock;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-use crate::{dto::{draft_dto::{DraftState, SharedDraftState}, player_dto::Player, team_dto::Team}};
+use crate::{dto::{draft_dto::{DraftState, SharedDraftState}, player_dto::Player, team_dto::Team}, services::websocket::send_team_update};
 use crate::services::{auth_user::AuthUser, websocket::{send_draft_update, send_player_update}};
 
 pub async fn start_draft (
@@ -154,7 +154,20 @@ pub async fn stop_draft (
         );
     }
 
+    let delete_teams_result = sqlx::query!("DELETE FROM teams")
+        .execute(&pool)
+        .await;
+
+    if let Err(e) = delete_teams_result {
+        error!("Failed to delete teams: {}", e);
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to delete teams: {}", e)
+        );
+    }
+
     send_draft_update(&tx, &state).await;
+    send_team_update(&pool, &tx).await;
     send_player_update(&pool, &tx).await;
 
     (
